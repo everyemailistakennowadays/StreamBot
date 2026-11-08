@@ -10,9 +10,8 @@ export async function handleMessageCreate(
 	streamingService: any,
 	commandManager: CommandManager
 ): Promise<void> {
-	// Ignore bots, self, non-command channels, and non-commands
+	// Ignore self and non-commands. Other bots (Jarvis) ARE trusted (Sir, 2026-11-08); the command-channel check below still applies
 	if (
-		message.author.bot ||
 		message.author.id === message.client.user?.id ||
 		!message.content.startsWith(config.prefix)
 	) return;
