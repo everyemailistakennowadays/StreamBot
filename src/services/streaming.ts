@@ -253,6 +253,10 @@ export class StreamingService {
 
 	private async executeStream(controller: AbortController, inputForFfmpeg: any, streamOpts: any, message: Message, title: string, videoSource: string): Promise<void> {
 		// Uses its own controller, not this.controller: a stopped run's late errors must not abort the next one
+		// HLS playlists whose segments are disguised as .jpg/.html/.js/.css (some anime sites) are blocked by ffmpeg by default
+		if (typeof inputForFfmpeg === "string" && /\.m3u8(\?|$)/i.test(inputForFfmpeg)) {
+			streamOpts.customInputOptions = ["-allowed_segment_extensions", "ALL", "-allowed_extensions", "ALL", "-extension_picky", "0"];
+		}
 		const { command, output: ffmpegOutput } = prepareStream(inputForFfmpeg, streamOpts, controller.signal);
 
 		command.on("error", (err, stdout, stderr) => {
