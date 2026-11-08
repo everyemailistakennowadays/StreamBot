@@ -21,6 +21,14 @@ export class StreamingService {
 	// replaced, so it must leave the queue and the stream status to the newer one
 	private playbackSession: number = 0;
 
+	// Pause / resume / seek (Sir, 2026-11-08): a fake pause. The bot clocks how far into the video it is,
+	// stop+remember on pause, restart with ffmpeg -ss on resume. Lives in the bot so it works without Jarvis.
+	private nowPlaying: { url: string; title: string; headers?: Record<string, string> } | null = null;
+	private playStartedAt: number = 0;
+	private startOffsetSec: number = 0;     // where the CURRENT playback began in the video
+	private pendingOffsetSec: number = 0;   // where the NEXT playback should begin
+	private paused: { url: string; title: string; headers?: Record<string, string>; offsetSec: number } | null = null;
+
  	constructor(client: Client, streamStatus: StreamStatus) {
  		this.streamer = new Streamer(client);
  		this.mediaService = new MediaService();
@@ -254,9 +262,17 @@ export class StreamingService {
 	private async executeStream(controller: AbortController, inputForFfmpeg: any, streamOpts: any, message: Message, title: string, videoSource: string): Promise<void> {
 		// Uses its own controller, not this.controller: a stopped run's late errors must not abort the next one
 		// HLS playlists whose segments are disguised as .jpg/.html/.js/.css (some anime sites) are blocked by ffmpeg by default
+		const inOpts: string[] = [];
 		if (typeof inputForFfmpeg === "string" && /\.m3u8(\?|$)/i.test(inputForFfmpeg)) {
-			streamOpts.customInputOptions = ["-allowed_segment_extensions", "ALL", "-allowed_extensions", "ALL", "-extension_picky", "0"];
+			inOpts.push("-allowed_segment_extensions", "ALL", "-allowed_extensions", "ALL", "-extension_picky", "0");
 		}
+		// Start offset for resume / seek (consumed once)
+		const offset = this.pendingOffsetSec;
+		this.pendingOffsetSec = 0;
+		if (offset > 0) inOpts.push("-ss", String(Math.floor(offset)));
+		if (inOpts.length > 0) streamOpts.customInputOptions = inOpts;
+		this.startOffsetSec = offset;
+		this.playStartedAt = Date.now();
 		const { command, output: ffmpegOutput } = prepareStream(inputForFfmpeg, streamOpts, controller.signal);
 
 		command.on("error", (err, stdout, stderr) => {
@@ -400,6 +416,7 @@ export class StreamingService {
 		const [guildId, channelId] = [config.guildId, config.videoChannelId];
 		const session = ++this.playbackSession;
 		this.streamStatus.manualStop = false;
+		this.nowPlaying = { url: videoSource, title: title || videoSource, headers };
 
 		if (title) {
 			const currentQueueItem = this.queueService.getCurrent();
@@ -459,7 +476,76 @@ export class StreamingService {
 		}
 	}
 
+	/** Seconds into the current video (approximate, within a few seconds). */
+	public getElapsedSec(): number {
+		if (!this.streamStatus.playing || !this.playStartedAt) return 0;
+		return this.startOffsetSec + (Date.now() - this.playStartedAt) / 1000;
+	}
+
+	public getPaused() {
+		return this.paused;
+	}
+
+	private async startAt(message: Message, item: { url: string; title: string; headers?: Record<string, string> }, offsetSec: number): Promise<void> {
+		this.pendingOffsetSec = Math.max(0, offsetSec);
+		const ok = await this.addToQueue(message, item.url, item.title, item.headers);
+		if (!ok) {
+			this.pendingOffsetSec = 0;
+			return;
+		}
+		await this.playFromQueue(message);
+	}
+
+	public async pauseCurrent(message: Message): Promise<number | null> {
+		if (!this.streamStatus.playing || !this.nowPlaying) {
+			await DiscordUtils.sendError(message, 'No video is currently playing.');
+			return null;
+		}
+		// Rewind 3 s so nothing is missed on resume
+		const at = Math.max(0, Math.floor(this.getElapsedSec()) - 3);
+		const item = { ...this.nowPlaying, offsetSec: at };
+		this.streamStatus.manualStop = true;
+		await this.stopAndClearQueue();       // this clears this.paused, so save it AFTER
+		this.paused = item;
+		return at;
+	}
+
+	public async resumePaused(message: Message): Promise<number | null> {
+		if (!this.paused) {
+			await DiscordUtils.sendError(message, 'Nothing is paused.');
+			return null;
+		}
+		if (this.streamStatus.playing) {
+			await DiscordUtils.sendError(message, 'Something is already playing. Use stop first.');
+			return null;
+		}
+		const p = this.paused;
+		this.paused = null;
+		await this.startAt(message, p, p.offsetSec);
+		return p.offsetSec;
+	}
+
+	/** Jump to an absolute position (seconds). Works while playing, or on a paused video. */
+	public async seekTo(message: Message, sec: number): Promise<boolean> {
+		sec = Math.max(0, Math.floor(sec));
+		if (this.streamStatus.playing && this.nowPlaying) {
+			const item = { ...this.nowPlaying };
+			this.streamStatus.manualStop = true;
+			await this.stopAndClearQueue();
+			await new Promise(r => setTimeout(r, 1500));   // let the old stream finish tearing down
+			await this.startAt(message, item, sec);
+			return true;
+		}
+		if (this.paused) {
+			this.paused.offsetSec = sec;
+			return true;
+		}
+		await DiscordUtils.sendError(message, 'Nothing is playing or paused.');
+		return false;
+	}
+
 	public async stopAndClearQueue(): Promise<void> {
+		this.paused = null;
 		// Clear the queue
 		this.queueService.clearQueue();
 		logger.info("Queue cleared by stop command");
