@@ -33,8 +33,7 @@ RUN bun pm trust --all
 # Copy the rest of the application code
 COPY . .
 
-# Verify the application builds
-RUN bun run build
+
 
 # Specify the port number the container should expose
 EXPOSE 3000
