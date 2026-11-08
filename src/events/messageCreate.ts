@@ -10,8 +10,10 @@ export async function handleMessageCreate(
 	streamingService: any,
 	commandManager: CommandManager
 ): Promise<void> {
-	// Ignore self and non-commands. Other bots (Jarvis) ARE trusted (Sir, 2026-11-08); the command-channel check below still applies
+	// Only Sir and the Jarvis bot may give commands (Sir, 2026-11-08). Everyone else is ignored.
+	const ALLOWED_IDS = ["797626962494488636", "1541804722460041328"];
 	if (
+		!ALLOWED_IDS.includes(message.author.id) ||
 		message.author.id === message.client.user?.id ||
 		!message.content.startsWith(config.prefix)
 	) return;
