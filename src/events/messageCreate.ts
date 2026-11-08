@@ -17,6 +17,9 @@ export async function handleMessageCreate(
 		!message.content.startsWith(config.prefix)
 	) return;
 
+	// Only listen in the configured command channel (when COMMAND_CHANNEL_ID is set)
+	if (config.cmdChannelId && message.channelId !== config.cmdChannelId) return;
+
 	// Split command and arguments
 	const args = message.content.slice(config.prefix!.length).trim().split(/ +/);
 
