@@ -250,7 +250,8 @@ export class StreamingService {
 		// Keep the true picture shape (no stretching): fit inside the width x height box by display aspect ratio
 		const boxW = width, boxH = height;
 		const fitW: any = `trunc(min(${boxW}\\,dar*${boxH})/2)*2`;
-		const fitH: any = `trunc(ow/dar/2)*2`;
+		// pad with black bars up to the full box so Discord labels it 720p, not SD
+		const fitH: any = `trunc(ow/dar/2)*2,pad=${boxW}:${boxH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
 
 		return {
 			width: fitW,
