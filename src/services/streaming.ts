@@ -228,6 +228,9 @@ export class StreamingService {
 			bitrateVideo = videoParams.bitrate;
 		}
 
+		// Quality floor: Railway defaults (1000 / 2500 kbps) make 1280-wide video look soft
+		bitrateVideo = Math.max(bitrateVideo, 3000);
+
 		// Resolution capping
 		if (config.maxWidth > 0 || config.maxHeight > 0) {
 			const ratio = width / height;
@@ -254,7 +257,7 @@ export class StreamingService {
 			height: fitH,
 			frameRate,
 			bitrateVideo,
-			bitrateVideoMax: config.maxBitrateKbps,
+			bitrateVideoMax: Math.max(config.maxBitrateKbps, 4000),
 			videoCodec: Utils.normalizeVideoCodec(config.videoCodec),
 			hardwareAcceleratedDecoding: config.hardwareAcceleratedDecoding,
 			minimizeLatency: false,
