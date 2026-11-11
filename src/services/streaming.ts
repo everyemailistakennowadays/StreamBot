@@ -244,9 +244,14 @@ export class StreamingService {
 			height = Math.round(height / 2) * 2;
 		}
 
+		// Keep the true picture shape (no stretching): fit inside the width x height box by display aspect ratio
+		const boxW = width, boxH = height;
+		const fitW: any = `trunc(min(${boxW}\\,dar*${boxH})/2)*2`;
+		const fitH: any = `trunc(ow/dar/2)*2`;
+
 		return {
-			width,
-			height,
+			width: fitW,
+			height: fitH,
 			frameRate,
 			bitrateVideo,
 			bitrateVideoMax: config.maxBitrateKbps,
